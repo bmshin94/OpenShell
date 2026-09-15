@@ -26,61 +26,6 @@ image:
   # -- Gateway image tag. Defaults to the chart appVersion when empty.
   tag: ""
 
-# Supervisor image for the openshell-sandbox binary injected into sandbox pods.
-# The default repository and empty tag use the version-pinned image built into
-# the gateway. Changing the repository or setting a tag enables a Helm override.
-supervisor:
-  image:
-    # -- Supervisor image repository. Changing it uses the effective gateway image tag unless tag is also set.
-    repository: ghcr.io/nvidia/openshell/supervisor
-    # -- Sandbox supervisor pull policy. Leave unset to use the Kubernetes
-    # image default. Prefer always, if_not_present, or never; the chart also
-    # accepts legacy Kubernetes spellings Always, IfNotPresent, and Never.
-    pullPolicy: null
-    # -- Supervisor image tag override. Empty uses the version pinned into the gateway unless repository is changed.
-    tag: ""
-  # -- How the supervisor binary is delivered into sandbox pods.
-  # Empty (default) = auto-detect from cluster version:
-  #   K8s >= v1.35 -> "image-volume" (ImageVolume enabled by default; GA in v1.36)
-  #   K8s < v1.35 -> "init-container" (copies via init container + emptyDir)
-  # On K8s v1.33-v1.34 with the ImageVolume feature gate manually enabled,
-  # set this to "image-volume" explicitly.
-  sideloadMethod: ""
-  # -- Supervisor pod topology for Kubernetes sandboxes.
-  # "combined" runs the current single supervisor container in the agent pod.
-  # "sidecar" runs network enforcement in a dedicated sidecar and the process
-  # supervisor as a low-capability wrapper in the agent container.
-  topology: "combined"
-  sidecar:
-    # -- UID for relaxed long-running network sidecars in sidecar topology.
-    # Strict process/binary-aware sidecars run as UID 0 so Kubernetes grants
-    # the required /proc inspection capabilities into the effective set. The
-    # network init container installs nftables rules that exempt the effective
-    # sidecar UID.
-    proxyUid: 1337
-    # -- Keep process/binary-aware network policy enabled in sidecar topology.
-    # When false, the network sidecar runs as proxyUid, drops the extra /proc
-    # inspection capabilities, and enforces endpoint/L7 policy without matching
-    # policy.binaries.
-    processBinaryAwareNetworkPolicy: true
-
-# -- Operator-owned corporate forward proxy for policy-approved TLS egress
-# from Kubernetes sandboxes. The workload cannot select or override it.
-upstreamProxy:
-  # -- HTTP proxy URL in http://host:port form. HTTPS-to-proxy is not supported.
-  url: ""
-  # -- Comma-separated destinations that bypass only the corporate proxy.
-  noProxy: ""
-  authSecret:
-    # -- Existing Secret in the sandbox namespace containing a user:pass value.
-    name: ""
-    # -- Secret key containing the proxy credential.
-    key: ""
-  # -- Required when authSecret is configured because Basic auth to an HTTP proxy is cleartext.
-  authAllowInsecure: false
-  # -- Last-resort option for hostname-filtering proxy ACLs. It lets the proxy resolve CONNECT targets.
-  connectByHostname: false
-
 # -- Image pull secrets attached to gateway and helper pods.
 imagePullSecrets: []
 # -- Override the chart name used in generated resource names.
@@ -231,8 +176,8 @@ gatewayConfig:
     gateway_id: '{{ include "openshell.fullname" . }}'
     grpc_endpoint: '{{ include "openshell.grpcEndpoint" . }}'
     service_account_name: '{{ include "openshell.sandboxServiceAccountName" . }}'
-    supervisor_sideload_method: '{{ include "openshell.supervisorSideloadMethod" . }}'
-    topology: '{{ .Values.supervisor.topology }}'
+    supervisor_sideload_method: '{{ if semverCompare ">=1.35-0" .Capabilities.KubeVersion.Version }}image-volume{{ else }}init-container{{ end }}'
+    topology: combined
     sa_token_ttl_secs: 3600
     app_armor_profile: Unconfined
   openshell.drivers.kubernetes.managed_ssh_ingress:
