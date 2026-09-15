@@ -684,7 +684,9 @@ tests:
       workload.kind: deployment
       replicaCount: 2
       server.externalDbSecret: my-pg-secret
-      server.credentialDrivers.kubernetesSecrets.enabled: true
+      gatewayConfig:
+        openshell.gateway:
+          credential_drivers: [kubernetes-secrets]
     asserts:
       - equal:
           path: kind
@@ -739,7 +741,9 @@ tests:
       replicaCount: 2
       server.externalDbSecret: my-pg-secret
       workload.allowMultiReplicaStatefulSet: true
-      server.credentialDrivers.kubernetesSecrets.enabled: true
+      gatewayConfig:
+        openshell.gateway:
+          credential_drivers: [kubernetes-secrets]
     asserts:
       - equal:
           path: kind
