@@ -951,6 +951,33 @@ mod tests {
     }
 
     #[test]
+    fn toml_image_pull_policy_validation_rejects_invalid_kubernetes_values() {
+        for (field, value) in [
+            ("image_pull_policy", "Sometimes"),
+            ("supervisor_image_pull_policy", "Always"),
+        ] {
+            let error = toml::from_str::<KubernetesComputeConfig>(&format!("{field} = {value:?}"))
+                .expect_err("non-canonical image-pull-policy values must fail TOML parsing");
+            assert!(
+                error.to_string().contains(value),
+                "{field} = {value:?}: {error}"
+            );
+        }
+
+        for field in ["image_pull_policy", "supervisor_image_pull_policy"] {
+            let config: KubernetesComputeConfig = toml::from_str(&format!("{field} = \"newer\""))
+                .expect("the shared image-pull-policy vocabulary parses before driver validation");
+            let error = config
+                .validate_configuration()
+                .expect_err("Kubernetes must reject unsupported image-pull-policy values");
+            assert!(
+                error.contains("supported only by the Podman"),
+                "{field}: {error}"
+            );
+        }
+    }
+
+    #[test]
     fn serde_override_topology_sidecar() {
         let json = serde_json::json!({
             "topology": "sidecar"
