@@ -125,7 +125,7 @@ The pod contains these OpenShell-managed pieces:
 | Component | Runs as | Purpose |
 |---|---|---|
 | Network init container | Root with setup capabilities | Installs pod-level nftables rules and prepares shared sidecar state. |
-| Network sidecar | UID 0 by default; `supervisor.sidecar.proxyUid` when binary-aware policy is disabled | Runs the proxy, enforces network policy, owns gateway authentication and the gateway session, and serves local policy/provider state over the sidecar control socket. |
+| Network sidecar | UID 0 by default; `gatewayConfig.openshell.drivers.kubernetes.sidecar.proxy_uid` when binary-aware policy is disabled | Runs the proxy, enforces network policy, owns gateway authentication and the gateway session, and serves local policy/provider state over the sidecar control socket. |
 | Agent container | Resolved sandbox UID/GID | Runs the process supervisor and launches the user workload. |
 
 In this topology, the agent container defaults to `runAsNonRoot: true`,
@@ -133,7 +133,7 @@ In this topology, the agent container defaults to `runAsNonRoot: true`,
 default binary-aware network sidecar runs as UID 0, drops default Linux
 capabilities, and adds `SYS_PTRACE` plus `DAC_READ_SEARCH` for cross-UID workload
 process identity resolution. Setting
-`supervisor.sidecar.processBinaryAwareNetworkPolicy=false` runs the sidecar as
+`gatewayConfig.openshell.drivers.kubernetes.sidecar.process_binary_aware_network_policy=false` runs the sidecar as
 the configured non-root `proxyUid`, omits both capabilities, and downgrades
 network policy to endpoint/L7 enforcement without binary matching. The root
 init container keeps the setup capabilities needed to configure pod networking.
@@ -234,9 +234,9 @@ supervisor:
 
 Leave `topology` unset, or set it to `combined`, to keep the original
 single-container supervisor path. For Helm installs, leave
-`supervisor.topology` unset or set it to `combined`.
+`gatewayConfig.openshell.drivers.kubernetes.topology` unset or set it to `combined`.
 
-Set `supervisor.sidecar.processBinaryAwareNetworkPolicy=false` only when you
+Set `gatewayConfig.openshell.drivers.kubernetes.sidecar.process_binary_aware_network_policy=false` only when you
 accept downgrading sidecar network policy to endpoint/L7 enforcement without
 matching `policy.binaries`. This changes the sidecar from UID 0 to `proxyUid`
 and removes its `SYS_PTRACE` and `DAC_READ_SEARCH` capabilities, which are used
