@@ -9,16 +9,15 @@
 # The e2e wrapper supplies the image repository and tag through OPENSHELL_REGISTRY
 # and IMAGE_TAG for existing-cluster runs.
 
-supervisor:
-  # Use the sidecar topology under Kata so network enforcement runs in the
-  # sidecar and the sandbox agent container stays low-privilege.
-  topology: sidecar
-  sidecar:
+# Kata validation clusters normally install this RuntimeClass.
+gatewayConfig:
+  openshell.drivers.kubernetes:
+    # Use the sidecar topology under Kata so network enforcement runs in the
+    # sidecar and the sandbox agent container stays low-privilege.
+    topology: sidecar
+    default_runtime_class_name: kata-qemu
+  openshell.drivers.kubernetes.sidecar:
     # Keep strict process/binary-aware network policy enabled for the Kata
     # validation path. Set this false only when intentionally validating the
     # documented endpoint/L7-only downgrade mode.
-    processBinaryAwareNetworkPolicy: true
-
-# Kata validation clusters normally install this RuntimeClass.
-server:
-  defaultRuntimeClassName: kata-qemu
+    process_binary_aware_network_policy: true
