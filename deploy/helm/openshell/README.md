@@ -35,7 +35,8 @@ where Helm cannot discover cluster APIs.
 ## Install on Kubernetes
 
 ```shell
-helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version>
+helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version> \
+  --set supervisor.sandboxRuntime.networkPolicyEnforced=true
 ```
 
 ## Install on OpenShift
@@ -43,16 +44,12 @@ helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <vers
 See the full [OpenShift install guide](https://docs.nvidia.com/openshell/latest/kubernetes/openshift) for details. Quick start:
 
 ```shell
-# Precreate the openshell namespace so we can create the SCC cluster role
+# Precreate the namespace before installation.
 oc create ns openshell
 
-# Sandboxes are deployed into the openshell namespace and use the openshell-sandbox service account
-oc adm policy add-scc-to-user privileged -z openshell-sandbox -n openshell
-
-# Deploy openshell with overrides to allow SCC assignment of fsGroup and runAsUser for the gateway
+# Deploy with the required NetworkPolicy enforcement acknowledgement.
 helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version> -n openshell \
-  --set podSecurityContext.fsGroup=null \
-  --set securityContext.runAsUser=null
+  --set supervisor.sandboxRuntime.networkPolicyEnforced=true
 ```
 
 On OpenShift 4.22+, end-to-end TLS is supported via `BackendTLSPolicy`. See the
@@ -110,6 +107,7 @@ Then install the chart pointing at that Secret:
 helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <version> \
   -n openshell \
   --set workload.kind=deployment \
+  --set supervisor.sandboxRuntime.networkPolicyEnforced=true \
   --set server.externalDbSecret=my-pg-credentials
 ```
 
@@ -215,6 +213,7 @@ discovery endpoint or its TLS CA.
 | certManager.serverDnsNames | list | `["openshell","openshell.openshell.svc","openshell.openshell.svc.cluster.local","localhost","openshell.localhost","*.openshell.localhost","host.docker.internal"]` | DNS SANs on the cert-manager-issued server certificate. |
 | certManager.serverIpAddresses | list | `["127.0.0.1"]` | IP SANs on the cert-manager-issued server certificate. |
 | certManager.serverIssuerRef | object | `{"group":"","kind":"","name":""}` | Override the issuerRef for the external server Certificate (e.g. a real LetsEncrypt/ACME ClusterIssuer for a publicly-trusted cert on an external hostname). When set, the chart creates a second server certificate from this issuer with only the hostnames in serverDnsNames; the internal server certificate is always signed by the chart's own CA. Leave name empty to use the chart CA for all server certificates (default). Requires certManager.enabled=true. |
+| credentialDrivers.vault.caConfigMapName | string | `""` | ConfigMap containing the private Vault/OpenBao CA certificate under the ca.crt key. Helm mounts it only when the Vault driver is selected. |
 | fullnameOverride | string | `""` | Override the full generated resource name. |
 | gatewayConfig | object | `{"openshell":{"version":2},"openshell.drivers.kubernetes":{"client_tls_secret_name":"{{ .Values.server.tls.clientTlsSecretName }}","default_image":"ghcr.io/nvidia/openshell-community/sandboxes/base:latest","gateway_id":"{{ include \"openshell.fullname\" . }}","grpc_endpoint":"{{ include \"openshell.grpcEndpoint\" . }}","namespace":"{{ include \"openshell.sandboxNamespace\" . }}","sa_token_ttl_secs":3600,"service_account_name":"{{ include \"openshell.sandboxServiceAccountName\" . }}","workspace_mode":"shared"},"openshell.drivers.kubernetes.managed_ssh_ingress":{"enabled":true,"gateway_namespace":"{{ .Release.Namespace }}","gateway_pod_selector":{"app.kubernetes.io/instance":"{{ .Release.Name }}","app.kubernetes.io/name":"{{ include \"openshell.name\" . }}"}},"openshell.gateway":{"bind_address":"0.0.0.0:{{ .Values.service.port }}","compute_driver":"kubernetes","enable_loopback_service_http":true,"health_bind_address":"0.0.0.0:{{ .Values.service.healthPort }}","log_level":"info","metrics_bind_address":"0.0.0.0:{{ .Values.service.metricsPort }}","name":"{{ include \"openshell.fullname\" . }}","policy_validation_failure_mode":"fail_closed"},"openshell.gateway.credential_storage":{"key_encryption_key_env":"{{ include \"openshell.credentialStorageKeyEncryptionKeyEnvName\" . }}"},"openshell.gateway.gateway_jwt":{"gateway_id":"{{ include \"openshell.fullname\" . }}","kid_path":"/etc/openshell-jwt/kid","public_key_path":"/etc/openshell-jwt/public.pem","signing_key_path":"/etc/openshell-jwt/signing.pem","ttl_secs":3600},"openshell.gateway.tls":{"cert_path":"/etc/openshell-tls/server/tls.crt","client_ca_path":"/etc/openshell-tls/client-ca/ca.crt","key_path":"/etc/openshell-tls/server/tls.key"}}` | Non-secret gateway application configuration. Top-level keys name TOML tables and are rendered into the mounted gateway.toml file. Kubernetes resource inputs remain outside this map; template expressions derive the corresponding runtime values from their resource owner. |
 | grpcRoute.backendTLSPolicy.caCertificateConfigMapName | string | `""` | Name of the ConfigMap containing the CA certificate (key: ca.crt) used to validate the gateway pod's TLS certificate. Defaults to `<fullname>-backend-ca` when empty. The certgen hook auto-creates this: with pkiInitJob (default), immediately on install/upgrade; with cert-manager, the hook polls for pkiInitJob.timeoutSeconds seconds waiting for cert-manager to issue the server certificate, then creates the ConfigMap. A single install usually succeeds; if cert-manager takes longer, increase pkiInitJob.timeoutSeconds. By default (pkiInitJob.failOnTimeout=true), the install fails if the timeout is reached; set failOnTimeout=false to allow the install to succeed and run `helm upgrade` after the certificate is issued. |

@@ -26,7 +26,7 @@ field must not require a Helm template change.
 {{- if regexMatch "-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----" $rendered -}}
 {{- fail "gatewayConfig must not contain an inline private key; provide it through a Secret-backed file mount" -}}
 {{- end -}}
-{{- if regexMatch "^[A-Za-z][A-Za-z0-9+.-]*://[^/@[:space:]]*:[^/@[:space:]]+@" $rendered -}}
+{{- if regexMatch "^[A-Za-z][A-Za-z0-9+.-]*://[^/@[:space:]]*@" $rendered -}}
 {{- fail "gatewayConfig must not contain inline URL credentials; provide them through a Secret-backed environment variable, file, or volume" -}}
 {{- end -}}
 {{- $rendered | quote -}}
@@ -137,6 +137,19 @@ the network-fence acknowledgement, and corporate proxy Secret wiring. */}}
 {{- if or (get $proxySecret "name") (get $proxySecret "key") -}}{{- $_ := set $kubernetes "proxy_auth_allow_insecure" (get $proxy "authAllowInsecure") -}}{{- end -}}
 {{- if get $proxy "connectByHostname" -}}{{- $_ := set $kubernetes "proxy_connect_by_hostname" true -}}{{- end -}}
 {{- $_ := set $config "openshell.drivers.kubernetes" $kubernetes -}}
+
+{{/* A Vault CA is a Kubernetes resource reference, not a free-form runtime
+path. Derive its mounted path only from the chart-owned ConfigMap reference. */}}
+{{- $credentialDrivers := .Values.credentialDrivers | default dict -}}
+{{- $vaultResources := get $credentialDrivers "vault" | default dict -}}
+{{- if hasKey $config "openshell.credential_drivers.vault" -}}
+{{- $vaultConfig := get $config "openshell.credential_drivers.vault" | default dict -}}
+{{- $_ := unset $vaultConfig "ca_bundle" -}}
+{{- if and (eq (include "openshell.credentialDriverEnabled" (list . "vault")) "true") (get $vaultResources "caConfigMapName") -}}
+{{- $_ := set $vaultConfig "ca_bundle" "/etc/openshell-tls/vault/ca.crt" -}}
+{{- end -}}
+{{- $_ := set $config "openshell.credential_drivers.vault" $vaultConfig -}}
+{{- end -}}
 
 {{/* TLS resources, mounts, and their corresponding runtime fields have one
 owner: server.*. Override any gatewayConfig copies before serializing TOML. */}}
