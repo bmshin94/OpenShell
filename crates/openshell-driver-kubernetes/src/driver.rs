@@ -2370,7 +2370,8 @@ impl KubernetesComputeDriver {
             workload_identity,
             child_env,
         }
-        .provision();
+        .provision()
+        .map_err(|error| KubernetesDriverError::Message(error.to_string()))?;
         let descriptor = provisioned
             .runtime_descriptor
             .backend_descriptor()
@@ -2608,7 +2609,8 @@ impl KubernetesComputeDriver {
             workload_identity,
             child_env,
         }
-        .provision();
+        .provision()
+        .map_err(|error| KubernetesDriverError::Message(error.to_string()))?;
         let descriptor = provisioned
             .runtime_descriptor
             .backend_descriptor()
