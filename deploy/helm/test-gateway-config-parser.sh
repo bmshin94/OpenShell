@@ -22,6 +22,7 @@ render() {
   helm template parser-validation "${chart}" \
     --namespace parser-namespace \
     --set agentSandbox.preflight.enabled=false \
+    --set supervisor.sandboxRuntime.networkPolicyEnforced=true \
     "$@" >"${output}"
 }
 
@@ -110,7 +111,7 @@ for values in "${chart}"/ci/values-*.yaml; do
     # The e2e wrapper supplies this generated URL alongside the overlay.
     render "${work_dir}/${name}.yaml" \
       --values "${values}" \
-      --set-string 'gatewayConfig.openshell\.drivers\.kubernetes.https_proxy=http://proxy.corp.example:8080'
+      --set-string 'upstreamProxy.url=http://proxy.corp.example:8080'
   else
     render "${work_dir}/${name}.yaml" --values "${values}"
   fi

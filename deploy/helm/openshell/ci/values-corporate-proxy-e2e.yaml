@@ -3,9 +3,8 @@
 
 # The Kubernetes corporate-proxy e2e wrapper supplies the generated proxy URL
 # and creates `openshell-e2e-proxy-auth` before Helm installs the gateway.
-gatewayConfig:
-  openshell.drivers.kubernetes:
-    topology: sidecar
-    proxy_auth_secret_name: openshell-e2e-proxy-auth
-    proxy_auth_secret_key: proxy-auth
-    proxy_auth_allow_insecure: true
+upstreamProxy:
+  authSecret:
+    name: openshell-e2e-proxy-auth
+    key: proxy-auth
+  authAllowInsecure: true

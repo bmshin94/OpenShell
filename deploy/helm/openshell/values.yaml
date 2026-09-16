@@ -26,6 +26,34 @@ image:
   # -- Gateway image tag. Defaults to the chart appVersion when empty.
   tag: ""
 
+# Trusted workload-side runtime image and network-fence acknowledgement.
+sandboxRuntime:
+  image:
+    repository: ghcr.io/nvidia/openshell/sandbox
+    pullPolicy: ""
+    tag: ""
+
+# Trusted control-side runtime image. These are Kubernetes packaging inputs;
+# the chart derives the corresponding driver fields below.
+supervisor:
+  image:
+    repository: ghcr.io/nvidia/openshell/supervisor
+    pullPolicy: null
+    tag: ""
+  sandboxRuntime:
+    networkPolicyEnforced: false
+    boundaryPort: 5500
+
+# Operator-owned proxy wiring, derived into the Kubernetes driver config.
+upstreamProxy:
+  url: ""
+  noProxy: ""
+  authSecret:
+    name: ""
+    key: ""
+  authAllowInsecure: false
+  connectByHostname: false
+
 # -- Image pull secrets attached to gateway and helper pods.
 imagePullSecrets: []
 # -- Override the chart name used in generated resource names.
@@ -176,19 +204,13 @@ gatewayConfig:
     gateway_id: '{{ include "openshell.fullname" . }}'
     grpc_endpoint: '{{ include "openshell.grpcEndpoint" . }}'
     service_account_name: '{{ include "openshell.sandboxServiceAccountName" . }}'
-    supervisor_sideload_method: '{{ if semverCompare ">=1.35-0" .Capabilities.KubeVersion.Version }}image-volume{{ else }}init-container{{ end }}'
-    topology: combined
     sa_token_ttl_secs: 3600
-    app_armor_profile: Unconfined
   openshell.drivers.kubernetes.managed_ssh_ingress:
     enabled: true
     gateway_namespace: '{{ .Release.Namespace }}'
     gateway_pod_selector:
       app.kubernetes.io/name: '{{ include "openshell.name" . }}'
       app.kubernetes.io/instance: '{{ .Release.Name }}'
-  openshell.drivers.kubernetes.sidecar:
-    proxy_uid: 1337
-    process_binary_aware_network_policy: true
   openshell.gateway.credential_storage:
     key_encryption_key_env: '{{ include "openshell.credentialStorageKeyEncryptionKeyEnvName" . }}'
 

@@ -109,6 +109,35 @@ source to make sandbox callback hostnames disagree with the pod spec. */}}
 {{- end -}}
 {{- $_ := set $config "openshell.drivers.kubernetes" $kubernetes -}}
 
+{{/* RFC 0012 packaging inputs are authoritative for paired runtime images,
+the network-fence acknowledgement, and corporate proxy Secret wiring. */}}
+{{- $runtime := .Values.sandboxRuntime | default dict -}}
+{{- $runtimeImage := get $runtime "image" | default dict -}}
+{{- $supervisor := .Values.supervisor | default dict -}}
+{{- $supervisorImage := get $supervisor "image" | default dict -}}
+{{- $runtimeTag := get $runtimeImage "tag" | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- $supervisorTag := get $supervisorImage "tag" | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- $_ := set $kubernetes "sandbox_runtime_image" (printf "%s:%s" (get $runtimeImage "repository" | default "ghcr.io/nvidia/openshell/sandbox") $runtimeTag) -}}
+{{- $_ := set $kubernetes "supervisor_image" (printf "%s:%s" (get $supervisorImage "repository" | default "ghcr.io/nvidia/openshell/supervisor") $supervisorTag) -}}
+{{- if get $runtimeImage "pullPolicy" -}}
+{{- $_ := set $kubernetes "sandbox_runtime_image_pull_policy" (include "openshell.canonicalImagePullPolicy" (get $runtimeImage "pullPolicy")) -}}
+{{- else -}}{{- $_ := unset $kubernetes "sandbox_runtime_image_pull_policy" -}}{{- end -}}
+{{- if get $supervisorImage "pullPolicy" -}}
+{{- $_ := set $kubernetes "supervisor_image_pull_policy" (include "openshell.canonicalImagePullPolicy" (get $supervisorImage "pullPolicy")) -}}
+{{- else -}}{{- $_ := unset $kubernetes "supervisor_image_pull_policy" -}}{{- end -}}
+{{- $runtimeConfig := get $supervisor "sandboxRuntime" | default dict -}}
+{{- $_ := set $kubernetes "sandbox_runtime" (dict "network_policy_enforced" (get $runtimeConfig "networkPolicyEnforced") "boundary_port" (get $runtimeConfig "boundaryPort" | default 5500)) -}}
+{{- $proxy := .Values.upstreamProxy | default dict -}}
+{{- range $runtimeKey := list "https_proxy" "no_proxy" "proxy_auth_secret_name" "proxy_auth_secret_key" "proxy_auth_allow_insecure" "proxy_connect_by_hostname" -}}{{- $_ := unset $kubernetes $runtimeKey -}}{{- end -}}
+{{- if get $proxy "url" -}}{{- $_ := set $kubernetes "https_proxy" (get $proxy "url") -}}{{- end -}}
+{{- if get $proxy "noProxy" -}}{{- $_ := set $kubernetes "no_proxy" (get $proxy "noProxy") -}}{{- end -}}
+{{- $proxySecret := get $proxy "authSecret" | default dict -}}
+{{- if get $proxySecret "name" -}}{{- $_ := set $kubernetes "proxy_auth_secret_name" (get $proxySecret "name") -}}{{- end -}}
+{{- if get $proxySecret "key" -}}{{- $_ := set $kubernetes "proxy_auth_secret_key" (get $proxySecret "key") -}}{{- end -}}
+{{- if or (get $proxySecret "name") (get $proxySecret "key") -}}{{- $_ := set $kubernetes "proxy_auth_allow_insecure" (get $proxy "authAllowInsecure") -}}{{- end -}}
+{{- if get $proxy "connectByHostname" -}}{{- $_ := set $kubernetes "proxy_connect_by_hostname" true -}}{{- end -}}
+{{- $_ := set $config "openshell.drivers.kubernetes" $kubernetes -}}
+
 {{/* TLS resources, mounts, and their corresponding runtime fields have one
 owner: server.*. Override any gatewayConfig copies before serializing TOML. */}}
 {{- $gateway := get $config "openshell.gateway" | default dict -}}

@@ -30,7 +30,7 @@ tests:
             resources: ["networkpolicies"]
             verbs: ["get", "create", "patch", "update"]
 
-  - it: omits managed NetworkPolicy permissions when isolation is disabled
+  - it: preserves sandbox-runtime fence permissions when gateway isolation is disabled
     set:
       gatewayConfig:
         openshell.drivers.kubernetes:
@@ -38,12 +38,18 @@ tests:
         openshell.drivers.kubernetes.managed_ssh_ingress:
           enabled: false
     asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["networking.k8s.io"]
+            resources: ["networkpolicies"]
+            verbs: ["create", "get"]
       - notContains:
           path: rules
           content:
             apiGroups: ["networking.k8s.io"]
             resources: ["networkpolicies"]
-          any: true
+            verbs: ["get", "create", "patch", "update"]
 
   - it: grants managed NetworkPolicy permissions independently of the shared-namespace policy toggle
     set:
@@ -91,19 +97,25 @@ tests:
             resourceNames: ["custom-client-tls"]
             verbs: ["get", "patch"]
 
-  - it: omits operator secret access when TLS and credential storage are disabled
+  - it: limits operator bootstrap secret access to create when TLS and credential storage are disabled
     set:
       gatewayConfig:
         openshell.drivers.kubernetes:
           workspace_mode: operator
       server.disableTls: true
     asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["create"]
       - notContains:
           path: rules
           content:
             apiGroups: [""]
             resources: ["secrets"]
-          any: true
+            verbs: ["get", "create", "patch", "delete"]
 
   - it: restricts managed copies to TLS and configured image-pull secrets
     set:
@@ -161,3 +173,53 @@ tests:
             apiGroups: [""]
             resources: ["secrets"]
           any: true
+
+  - it: grants managed sandbox-runtime companion permissions
+    set:
+      gatewayConfig:
+        openshell.drivers.kubernetes:
+          workspace_mode: managed
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["create", "delete", "get", "list", "patch", "watch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["services"]
+            verbs: ["create", "get"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["create"]
+
+  - it: grants operator sandbox-runtime companion permissions
+    set:
+      gatewayConfig:
+        openshell.drivers.kubernetes:
+          workspace_mode: operator
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["create", "delete", "get", "list", "patch", "watch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["services"]
+            verbs: ["create", "get"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["create"]
