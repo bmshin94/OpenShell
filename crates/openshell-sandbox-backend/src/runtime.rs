@@ -24,9 +24,9 @@ use openshell_isolation_interface::contract::{
     BackendError, BoundBoundary, BoundaryDuplexStream, BoundaryExec, BoundaryExitStatus,
     BoundaryInput, BoundaryLoopbackConnector, BoundaryOutput, BoundaryProcess, BoundarySignal,
     BoundaryTerminal, ConfirmedBoundary, ExecSession, ExecSpec, IsolationBackend, LoopbackTarget,
-    MediationTiming, NetworkMediationSource, PendingDnsQuery, PendingTcpOpen, ProcessAttachment,
-    ReadyBoundary, RunningBoundary, SandboxContext, TcpOpenDecision, TcpOpenDenial,
-    VerifiedBackendDescriptor,
+    MediationTiming, NetworkMediationMode, NetworkMediationSource, PendingDnsQuery, PendingTcpOpen,
+    ProcessAttachment, ReadyBoundary, RunningBoundary, SandboxContext, TcpOpenDecision,
+    TcpOpenDenial, VerifiedBackendDescriptor,
 };
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -103,6 +103,7 @@ impl IsolationBackend for OpenShellRuntimeBackend {
         let generation = runtime_descriptor.generation.clone();
         let session_id = runtime_descriptor.session_id;
         let outer_fence = runtime_descriptor.outer_fence.clone();
+        let adapter = runtime_descriptor.adapter;
         let client = Arc::new(BoundaryClient::new(
             runtime_descriptor,
             self.sandbox_bearer.clone(),
@@ -127,7 +128,7 @@ impl IsolationBackend for OpenShellRuntimeBackend {
             agent: sandbox.agent,
             policy: sandbox.policy,
             sandbox_id: sandbox.sandbox_id,
-            mediation: Arc::new(RemoteNetworkMediation { client }),
+            mediation: Arc::new(RemoteNetworkMediation { client, adapter }),
             host_gateway_ip,
             ca_file_paths: self.ca_file_paths.clone(),
             provider_credentials: self.provider_credentials.clone(),
@@ -136,6 +137,7 @@ impl IsolationBackend for OpenShellRuntimeBackend {
             session_id,
             resource_claims,
             outer_fence,
+            adapter,
         }))
     }
 }
@@ -281,6 +283,7 @@ struct RemoteBound {
     session_id: openshell_core::SandboxSessionId,
     resource_claims: std::collections::BTreeMap<String, String>,
     outer_fence: openshell_isolation_interface::contract::OuterFenceGuarantees,
+    adapter: crate::boundary_protocol::SandboxRuntimeAdapter,
 }
 
 #[async_trait]
@@ -308,17 +311,16 @@ impl BoundBoundary for RemoteBound {
                     .to_string(),
             ));
         }
-        let audit: crate::boundary_protocol::NativeLinuxSandboxAuditEvidence =
+        let audit: crate::boundary_protocol::OpenShellSandboxAdapterAudit =
             serde_json::from_value(confirmation.backend_audit.clone()).map_err(|error| {
                 BackendError::Confirm(format!(
-                    "decode native Linux sandbox audit evidence: {error}"
+                    "decode OpenShell sandbox adapter audit evidence: {error}"
                 ))
             })?;
-        audit.validate()?;
+        audit.validate_for(self.adapter)?;
         if confirmation.properties != audit.properties() {
             return Err(BackendError::Confirm(
-                "sandbox confirmation properties do not match native Linux audit evidence"
-                    .to_string(),
+                "sandbox confirmation properties do not match adapter audit evidence".to_string(),
             ));
         }
         let client = self.client.clone();
@@ -769,10 +771,22 @@ async fn pump_exec_input(
 /// head-of-line blocking during concurrent TLS handshakes.
 struct RemoteNetworkMediation {
     client: Arc<BoundaryClient>,
+    adapter: crate::boundary_protocol::SandboxRuntimeAdapter,
 }
 
 #[async_trait]
 impl NetworkMediationSource for RemoteNetworkMediation {
+    fn mode(&self) -> NetworkMediationMode {
+        match self.adapter {
+            crate::boundary_protocol::SandboxRuntimeAdapter::NativeLinux => {
+                NetworkMediationMode::TransparentTcp
+            }
+            crate::boundary_protocol::SandboxRuntimeAdapter::Gvisor => {
+                NetworkMediationMode::ExplicitProxy
+            }
+        }
+    }
+
     async fn accept_tcp(&self) -> Result<PendingTcpOpen, BackendError> {
         let (stream, response) = self.client.open_exchange(Request::AcceptNetwork).await?;
         let Response::NetworkConnected {
@@ -803,6 +817,17 @@ impl NetworkMediationSource for RemoteNetworkMediation {
             },
             decision,
         })
+    }
+
+    async fn accept_explicit_proxy(&self) -> Result<BoundaryDuplexStream, BackendError> {
+        let (stream, response) = self
+            .client
+            .open_exchange(Request::AcceptExplicitProxy)
+            .await?;
+        if !matches!(response, Response::ExplicitProxyConnected) {
+            return Err(unexpected_response("explicit_proxy_connected", &response));
+        }
+        Ok(stream)
     }
 
     async fn accept_dns(&self) -> Result<PendingDnsQuery, BackendError> {
@@ -1852,7 +1877,9 @@ mod tests {
     use std::task::{Context, Poll};
 
     use super::*;
-    use crate::boundary_protocol::{ExitStatusWire, generate_sandbox_tls_material};
+    use crate::boundary_protocol::{
+        ExitStatusWire, SandboxRuntimeAdapter, generate_sandbox_tls_material,
+    };
     use crate::proto::{
         BoundaryChunk,
         isolation_boundary_server::{IsolationBoundary, IsolationBoundaryServer},
@@ -2004,6 +2031,10 @@ mod tests {
                             Request::AcceptNetwork => Response::Error {
                                 kind: crate::boundary_protocol::BoundaryErrorKind::Unavailable,
                                 message: "no pending network request".to_string(),
+                            },
+                            Request::AcceptExplicitProxy => Response::Error {
+                                kind: crate::boundary_protocol::BoundaryErrorKind::Unavailable,
+                                message: "no pending explicit proxy stream".to_string(),
                             },
                         },
                     }) {
@@ -2378,6 +2409,7 @@ mod tests {
             generation: "test-generation".to_string(),
             session_id: test_session_id(),
             workload_identity: sandbox().identity,
+            adapter: SandboxRuntimeAdapter::default(),
             transport: SandboxTransport::Tcp {
                 authority: "sandbox.test".to_string(),
                 addresses: vec![address],
@@ -2484,7 +2516,7 @@ mod tests {
     }
 
     fn test_confirmation() -> openshell_isolation_interface::contract::BoundaryConfirmation {
-        let audit = crate::boundary_protocol::NativeLinuxSandboxAuditEvidence {
+        let native_audit = crate::boundary_protocol::NativeLinuxSandboxAuditEvidence {
             capabilities: crate::boundary_protocol::CapabilityEvidence {
                 inheritable: 0,
                 permitted: 0,
@@ -2516,6 +2548,8 @@ mod tests {
             tcp_allow_round_trip: true,
             tcp_deny_round_trip: true,
         };
+        let audit =
+            crate::boundary_protocol::OpenShellSandboxAdapterAudit::NativeLinux(native_audit);
         openshell_isolation_interface::contract::BoundaryConfirmation {
             generation: "test-generation".to_string(),
             identity: sandbox().identity,
@@ -2594,9 +2628,14 @@ mod tests {
     #[tokio::test]
     async fn remote_confirm_rejects_invalid_native_audit_before_monitoring() {
         let mut confirmation = test_confirmation();
-        let mut audit: crate::boundary_protocol::NativeLinuxSandboxAuditEvidence =
+        let mut audit: crate::boundary_protocol::OpenShellSandboxAdapterAudit =
             serde_json::from_value(confirmation.backend_audit.clone()).expect("decode test audit");
-        audit.seccomp.notification_round_trip = false;
+        let crate::boundary_protocol::OpenShellSandboxAdapterAudit::NativeLinux(native) =
+            &mut audit
+        else {
+            panic!("test confirmation must contain native Linux evidence");
+        };
+        native.seccomp.notification_round_trip = false;
         confirmation.backend_audit = serde_json::to_value(audit).expect("encode test audit");
 
         assert_remote_confirmation_rejected(confirmation).await;
@@ -2641,6 +2680,7 @@ mod tests {
             generation: "test-generation".to_string(),
             session_id: test_session_id(),
             workload_identity: sandbox().identity,
+            adapter: SandboxRuntimeAdapter::default(),
             transport: SandboxTransport::Unix {
                 socket_path: PathBuf::from("/tmp/vsock.sock"),
             },
@@ -2661,6 +2701,7 @@ mod tests {
             generation: "test-generation".to_string(),
             session_id: test_session_id(),
             workload_identity: sandbox().identity,
+            adapter: SandboxRuntimeAdapter::default(),
             transport: SandboxTransport::Unix {
                 socket_path: PathBuf::from("/tmp/vsock.sock"),
             },
@@ -2682,6 +2723,7 @@ mod tests {
             generation: "test-generation".to_string(),
             session_id: test_session_id(),
             workload_identity: sandbox().identity,
+            adapter: SandboxRuntimeAdapter::default(),
             transport: SandboxTransport::Tcp {
                 authority: "sandbox.test".to_string(),
                 addresses: vec!["0.0.0.0:5500".parse().expect("valid address")],
@@ -2704,6 +2746,7 @@ mod tests {
             generation: "test-generation".to_string(),
             session_id: test_session_id(),
             workload_identity: sandbox().identity,
+            adapter: SandboxRuntimeAdapter::default(),
             transport: SandboxTransport::Tcp {
                 authority: "sandbox.test".to_string(),
                 addresses: vec!["10.42.0.7:5500".parse().expect("valid address")],
@@ -2898,6 +2941,7 @@ mod tests {
                 generation: "test-generation".to_string(),
                 session_id: test_session_id(),
                 workload_identity: sandbox().identity,
+                adapter: SandboxRuntimeAdapter::default(),
                 transport: SandboxTransport::Tcp {
                     authority: "sandbox.test".to_string(),
                     addresses: vec![address],
@@ -2986,6 +3030,7 @@ mod tests {
                 generation: "test-generation".to_string(),
                 session_id: test_session_id(),
                 workload_identity: context.identity.clone(),
+                adapter: SandboxRuntimeAdapter::default(),
                 transport: SandboxTransport::Unix {
                     socket_path: socket_path.clone(),
                 },
