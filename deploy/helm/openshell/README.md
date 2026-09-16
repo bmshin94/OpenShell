@@ -145,6 +145,14 @@ gatewayConfig:
     role: openshell-gateway
 ```
 
+> `gatewayConfig` must contain only non-secret values. Helm serializes unknown
+> fields generically and cannot determine whether an arbitrary string, such as
+> `api_token`, is confidential. Do not put passwords, tokens, private keys,
+> database URLs, or other secret material in this map. Use Secret-backed
+> environment variables, files, volumes, or gateway credential drivers instead.
+> The chart rejects known unsafe forms such as `database_url`, inline URL
+> credentials, and PEM private keys; it is not a general secret scanner.
+
 For the Kubernetes Secret driver, use
 `openshell.credential_drivers.kubernetes-secrets.namespace` in the same map.
 The chart derives any required RBAC from the selected driver; use a dedicated
@@ -267,8 +275,6 @@ discovery endpoint or its TLS CA.
 | server.disableTls | bool | `false` | Disable TLS entirely - the server listens on plaintext HTTP. Set to true when a reverse proxy / tunnel terminates TLS at the edge. |
 | server.externalDbSecret | string | `""` | Name of a pre-existing Opaque Secret containing a PostgreSQL connection URI (key: uri). When set, the gateway reads OPENSHELL_DB_URL from this Secret instead of using dbUrl. The Secret must contain a `uri` key, e.g. postgresql://user:pass@host:5432/dbname. |
 | server.hostGatewayIP | string | `""` | Host gateway IP for sandbox pod hostAliases. When set, sandbox pods get hostAliases entries mapping host.docker.internal and host.openshell.internal to this IP, allowing them to reach services running on the Docker host. Auto-detected by the cluster entrypoint script. |
-| server.providerTokenGrants.spiffe.enabled | bool | `false` | Mount the SPIFFE Workload API socket into gateway and sandbox pods for dynamic provider token grants. |
-| server.providerTokenGrants.spiffe.workloadApiSocketPath | string | `"/spiffe-workload-api/spire-agent.sock"` | Path to the SPIFFE Workload API socket mounted into gateway and sandbox pods. |
 | server.sandboxJwt.secretDefaultMode | string | `""` | File mode for the mounted JWT signing key Secret. Default 0400 (owner-read only). Override to 0440 or 0444 if the container UID does not match the volume file owner. |
 | server.sandboxJwt.signingSecretName | string | `""` | Name of the Opaque Secret holding the signing key material. Empty falls back to the chart fullname with "-jwt-keys" appended. |
 | server.sandboxNamespace | string | `""` | Namespace where sandbox pods are created. Defaults to the Helm release namespace (.Release.Namespace) when left empty. |
