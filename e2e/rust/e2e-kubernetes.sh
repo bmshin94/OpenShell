@@ -10,10 +10,10 @@
 #
 # Features: the default set includes `e2e-host-gateway` so tests that rely on
 # the sandbox-side `host.openshell.internal` alias compile and run. The
-# wrapper detects the cluster's host-routable IP and wires it into the chart
-# via `server.hostGatewayIP`. Targeting a cluster where the test host is
-# unreachable from pods? Set OPENSHELL_E2E_KUBERNETES_FEATURES=e2e to drop the
-# alias-dependent tests entirely.
+# wrapper detects the cluster's host-routable IP and wires it into
+# gatewayConfig.openshell.drivers.kubernetes.host_gateway_ip. Targeting a
+# cluster where the test host is unreachable from pods? Set
+# OPENSHELL_E2E_KUBERNETES_FEATURES=e2e to drop the alias-dependent tests.
 
 set -euo pipefail
 
