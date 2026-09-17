@@ -1,0 +1,21 @@
+{
+  "device_node_paths": [
+    "/dev/dri/card0",
+    "/dev/dri/renderD128",
+    "/dev/nvidia-modeset",
+    "/dev/nvidia-uvm",
+    "/dev/nvidia-uvm-tools",
+    "/dev/nvidia0",
+    "/dev/nvidiactl"
+  ],
+  "library_directories": [
+    "/usr/lib/aarch64-linux-gnu",
+    "/usr/lib/aarch64-linux-gnu/nvidia/xorg",
+    "/usr/lib/aarch64-linux-gnu/vdpau"
+  ],
+  "read_write_mount_paths": [],
+  "additional_gids": [
+    44,
+    993
+  ]
+}

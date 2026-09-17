@@ -455,14 +455,9 @@ mod tests {
         additional_gids: &'a [u32],
     }
 
-    #[test]
-    fn orin_cdi_spec_matches_generated_policy_baseline() {
+    fn assert_cdi_spec_matches_generated_policy_baseline(spec: &str, expected: &str) {
         let dir = tempfile::tempdir().unwrap();
-        write_spec(
-            dir.path(),
-            "nvidia.yaml",
-            include_str!("../testdata/orin-nvidia.yaml"),
-        );
+        write_spec(dir.path(), "nvidia.yaml", spec);
 
         let requirements = resolve_with_kind(
             &context(dir.path(), &["nvidia.com/gpu=all"]),
@@ -478,9 +473,22 @@ mod tests {
         };
         let generated = serde_json::to_string_pretty(&baseline).unwrap() + "\n";
 
-        assert_eq!(
-            generated,
-            include_str!("../testdata/orin-nvidia-policy-baseline.json")
+        assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn orin_cdi_spec_matches_generated_policy_baseline() {
+        assert_cdi_spec_matches_generated_policy_baseline(
+            include_str!("../testdata/orin-nvidia.yaml"),
+            include_str!("../testdata/orin-nvidia-policy-baseline.json"),
+        );
+    }
+
+    #[test]
+    fn spark_cdi_spec_matches_generated_policy_baseline() {
+        assert_cdi_spec_matches_generated_policy_baseline(
+            include_str!("../testdata/spark-nvidia.yaml"),
+            include_str!("../testdata/spark-nvidia-policy-baseline.json"),
         );
     }
 
