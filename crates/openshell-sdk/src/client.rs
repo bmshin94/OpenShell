@@ -144,7 +144,7 @@ impl OpenShellClient {
                 async move { grpc.create_sandbox(request).await }
             })
             .await?;
-        sandbox_from_response(response.sandbox)
+        sandbox_from_create_response(response)
     }
 
     /// Create a new sandbox from a workspace-scoped workload template name.
@@ -159,7 +159,7 @@ impl OpenShellClient {
                 async move { grpc.create_sandbox(request).await }
             })
             .await?;
-        sandbox_from_response(response.sandbox)
+        sandbox_from_create_response(response)
     }
 
     /// Create a reusable sandbox template in the default workspace.
@@ -767,7 +767,7 @@ impl WorkspaceScopedClient {
                 async move { grpc.create_sandbox(request).await }
             })
             .await?;
-        sandbox_from_response(response.sandbox)
+        sandbox_from_create_response(response)
     }
 
     /// Create a new sandbox from a template in this workspace.
@@ -784,7 +784,7 @@ impl WorkspaceScopedClient {
                 async move { grpc.create_sandbox(request).await }
             })
             .await?;
-        sandbox_from_response(response.sandbox)
+        sandbox_from_create_response(response)
     }
 
     /// Create a reusable sandbox template in this workspace.
@@ -1166,6 +1166,7 @@ fn create_sandbox_request(spec: SandboxSpec) -> proto::CreateSandboxRequest {
         gpu,
         command,
         tty,
+        service_exposures,
     } = spec;
     let template = image.map(|image| proto::SandboxTemplate {
         image,
@@ -1190,6 +1191,13 @@ fn create_sandbox_request(spec: SandboxSpec) -> proto::CreateSandboxRequest {
         workspace_scope: Some(proto::workspace_selector("default")),
         await_main_process_attachment: false,
         workload_template_name: String::new(),
+        service_exposures: service_exposures
+            .into_iter()
+            .map(|exposure| proto::SandboxServiceExposure {
+                service: exposure.service,
+                target_port: u32::from(exposure.target_port),
+            })
+            .collect(),
     }
 }
 
@@ -1204,6 +1212,7 @@ fn create_sandbox_from_template_request(
         command,
         tty,
         policy,
+        service_exposures,
     } = spec;
     proto::CreateSandboxRequest {
         spec: Some(proto::SandboxSpec {
@@ -1219,6 +1228,13 @@ fn create_sandbox_from_template_request(
         workspace_scope: Some(proto::workspace_selector("default")),
         workload_template_name: template_name,
         await_main_process_attachment: false,
+        service_exposures: service_exposures
+            .into_iter()
+            .map(|exposure| proto::SandboxServiceExposure {
+                service: exposure.service,
+                target_port: u32::from(exposure.target_port),
+            })
+            .collect(),
     }
 }
 
@@ -1226,6 +1242,12 @@ fn sandbox_from_response(sandbox: Option<proto::Sandbox>) -> Result<SandboxRef> 
     sandbox
         .map(SandboxRef::from_proto)
         .ok_or_else(|| SdkError::invalid_config("sandbox missing from gateway response"))
+}
+
+fn sandbox_from_create_response(response: proto::SandboxResponse) -> Result<SandboxRef> {
+    let mut sandbox = sandbox_from_response(response.sandbox)?;
+    sandbox.service_urls = response.service_urls;
+    Ok(sandbox)
 }
 
 fn sandbox_template_from_response(

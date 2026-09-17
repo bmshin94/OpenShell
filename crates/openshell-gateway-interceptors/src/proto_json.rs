@@ -318,6 +318,7 @@ mod tests {
             workspace_scope: Some(workspace_selector("default")),
             await_main_process_attachment: false,
             workload_template_name: String::new(),
+            service_exposures: Vec::new(),
         };
         let bytes = request.encode_to_vec();
         let json = codec

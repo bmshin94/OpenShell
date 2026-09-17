@@ -352,6 +352,15 @@ Public RPC contracts and durable protobuf formats have separate ownership. The `
 
 `ReportEndpointStatus` is a sandbox-authenticated public gateway RPC. Its request, response, and `EndpointObservation` messages belong only to the public closure. `EndpointStatus` and `EndpointResult` also belong to the durable closure because `Sandbox.status.endpoint_statuses` persists them. The repeated status field uses a new wire tag; stored sandboxes without it decode with an empty endpoint list and retain their lifecycle fields. A fixed payload encoded with the earlier sandbox schema verifies that no database rewrite is required.
 
+`CreateSandboxRequest.service_exposures` is an additive public API field. Its
+`SandboxServiceExposure` entries register service endpoints as part of sandbox
+creation and are represented in the Rust, Python, TypeScript, and Go SDK create
+options. The request-only exposure description is not durable; the gateway
+persists the resulting `ServiceEndpoint` objects through the existing endpoint
+store after it persists the sandbox. `SandboxResponse.service_urls` returns the
+routed URLs keyed by service name for `CreateSandbox`; the empty key represents
+the unnamed endpoint, and other sandbox operations leave the map empty.
+
 The removed `NetworkBinary.harness` field remains reserved by number and name,
 so protobuf implementations cannot reuse its wire slot or source identifier.
 The durable-policy compatibility decoder reads the former boolean before Prost

@@ -9,7 +9,7 @@ use openshell_core::proto::{
     DeleteServiceRequest, DeleteServiceResponse, ExposeServiceRequest, GetServiceRequest,
     ListServicesRequest, ListServicesResponse, Sandbox, ServiceEndpoint, ServiceEndpointResponse,
 };
-use openshell_core::{ObjectId, ObjectWorkspace};
+use openshell_core::{ObjectId, ObjectName, ObjectWorkspace};
 use prost::Message as _;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -43,11 +43,7 @@ pub(super) async fn handle_expose_service(
     let workspace = super::workspace::resolve_workspace(state.store.as_ref(), &authz.workspace)
         .await?
         .ensure_active()?;
-    validate_endpoint_name("sandbox", &req.sandbox, MAX_SANDBOX_NAME_LEN)?;
-    validate_optional_endpoint_name("service", &req.service, MAX_SERVICE_NAME_LEN)?;
-    if req.target_port == 0 || req.target_port > u32::from(u16::MAX) {
-        return Err(Status::invalid_argument("target_port must be in 1..=65535"));
-    }
+    validate_service_exposure(&req.sandbox, &req.service, req.target_port)?;
 
     let sandbox = state
         .store
@@ -56,13 +52,45 @@ pub(super) async fn handle_expose_service(
         .map_err(|e| Status::internal(format!("fetch sandbox failed: {e}")))?
         .ok_or_else(|| Status::not_found("sandbox not found"))?;
 
+    expose_service_endpoint(state, &workspace, &sandbox, &req.service, req.target_port).await
+}
+
+pub(super) fn validate_service_exposure(
+    sandbox: &str,
+    service: &str,
+    target_port: u32,
+) -> Result<(), Status> {
+    validate_endpoint_name("sandbox", sandbox, MAX_SANDBOX_NAME_LEN)?;
+    validate_service_exposure_request(service, target_port)
+}
+
+pub(super) fn validate_service_exposure_request(
+    service: &str,
+    target_port: u32,
+) -> Result<(), Status> {
+    validate_optional_endpoint_name("service", service, MAX_SERVICE_NAME_LEN)?;
+    if target_port == 0 || target_port > u32::from(u16::MAX) {
+        return Err(Status::invalid_argument("target_port must be in 1..=65535"));
+    }
+    Ok(())
+}
+
+pub(super) async fn expose_service_endpoint(
+    state: &Arc<ServerState>,
+    workspace: &str,
+    sandbox: &Sandbox,
+    service: &str,
+    target_port: u32,
+) -> Result<Response<ServiceEndpointResponse>, Status> {
+    let sandbox_name = sandbox.object_name();
+
     let now = crate::persistence::current_time_ms();
-    let key = service_routing::endpoint_key(&req.sandbox, &req.service);
+    let key = service_routing::endpoint_key(sandbox_name, service);
 
     // Fetch existing endpoint to determine create vs. update path
     let existing = state
         .store
-        .get_message_by_name::<ServiceEndpoint>(&workspace, &key)
+        .get_message_by_name::<ServiceEndpoint>(workspace, &key)
         .await
         .map_err(|e| Status::internal(format!("fetch endpoint failed: {e}")))?;
 
@@ -95,7 +123,7 @@ pub(super) async fn handle_expose_service(
 
     let labels_json = serde_json::to_string(&HashMap::from([(
         "sandbox".to_string(),
-        req.sandbox.clone(),
+        sandbox_name.to_string(),
     )]))
     .map_err(|e| Status::internal(format!("serialize labels failed: {e}")))?;
 
@@ -104,16 +132,16 @@ pub(super) async fn handle_expose_service(
             id: id.clone(),
             name: key.clone(),
             created_time: openshell_core::time::timestamp_from_millis(created_at_ms).ok(),
-            labels: HashMap::from([("sandbox".to_string(), req.sandbox.clone())]),
+            labels: HashMap::from([("sandbox".to_string(), sandbox_name.to_string())]),
             resource_version: 0,
             annotations: HashMap::new(),
-            workspace: workspace.clone(),
+            workspace: workspace.to_string(),
             deletion_time: None,
         }),
         sandbox_id: sandbox.object_id().to_string(),
-        sandbox_name: req.sandbox.clone(),
-        service_name: req.service.clone(),
-        target_port: req.target_port,
+        sandbox_name: sandbox_name.to_string(),
+        service_name: service.to_string(),
+        target_port,
         domain: true,
     };
 
@@ -124,7 +152,7 @@ pub(super) async fn handle_expose_service(
             ServiceEndpoint::object_type(),
             &id,
             &key,
-            &workspace,
+            workspace,
             &endpoint.encode_to_vec(),
             Some(&labels_json),
             condition,
@@ -137,7 +165,7 @@ pub(super) async fn handle_expose_service(
         meta.resource_version = result.resource_version;
     }
 
-    let url = service_routing::endpoint_url(&state.config, &workspace, &req.sandbox, &req.service)
+    let url = service_routing::endpoint_url(&state.config, workspace, sandbox_name, service)
         .unwrap_or_default();
     service_routing::emit_service_endpoint_config_event(&endpoint, &url, created);
 

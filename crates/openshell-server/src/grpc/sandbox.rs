@@ -46,7 +46,7 @@ use openshell_core::telemetry::{
 use openshell_core::{GetResourceVersion, ObjectId, ObjectName, ObjectWorkspace};
 use prost::Message;
 use prost_types::{Struct, Value, value::Kind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -75,6 +75,7 @@ use crate::persistence::current_time_ms;
 const TCP_FORWARD_CHUNK_SIZE: usize = 64 * 1024;
 const NO_LOGIN_SHELL_ENV: (&str, &str) = ("OPENSHELL_NO_LOGIN_SHELL", "1");
 const MAX_TEMPLATES_PER_WORKSPACE: u32 = 1000;
+const MAX_CREATE_SERVICE_EXPOSURES: usize = 32;
 
 #[derive(Debug)]
 pub struct WatchSandboxStream {
@@ -541,6 +542,19 @@ async fn handle_create_sandbox_inner(
         )
         .await?;
 
+    let mut service_urls = HashMap::with_capacity(request.service_exposures.len());
+    for exposure in &request.service_exposures {
+        let endpoint = super::service::expose_service_endpoint(
+            state,
+            sandbox.object_workspace(),
+            &sandbox,
+            &exposure.service,
+            exposure.target_port,
+        )
+        .await?;
+        service_urls.insert(exposure.service.clone(), endpoint.into_inner().url);
+    }
+
     info!(
         sandbox_id = %id,
         sandbox_name = %name,
@@ -548,6 +562,7 @@ async fn handle_create_sandbox_inner(
     );
     Ok(Response::new(SandboxResponse {
         sandbox: Some(sandbox),
+        service_urls,
     }))
 }
 
@@ -561,6 +576,22 @@ fn validate_create_sandbox_request_pre_io(
         crate::grpc::validation::validate_label_value(value)?;
     }
     crate::grpc::validation::validate_annotations(&request.annotations, "annotations")?;
+
+    if request.service_exposures.len() > MAX_CREATE_SERVICE_EXPOSURES {
+        return Err(Status::invalid_argument(format!(
+            "service_exposures must contain at most {MAX_CREATE_SERVICE_EXPOSURES} entries"
+        )));
+    }
+    let mut service_names = HashSet::with_capacity(request.service_exposures.len());
+    for exposure in &request.service_exposures {
+        super::service::validate_service_exposure_request(&exposure.service, exposure.target_port)?;
+        if !service_names.insert(exposure.service.as_str()) {
+            return Err(Status::invalid_argument(format!(
+                "duplicate service exposure name: '{}'",
+                exposure.service
+            )));
+        }
+    }
 
     if workload_template_name.is_empty() {
         let spec = request
@@ -710,6 +741,7 @@ pub(super) async fn handle_get_sandbox(
     let sandbox = sandbox.ok_or_else(|| Status::not_found("sandbox not found"))?;
     Ok(Response::new(SandboxResponse {
         sandbox: Some(sandbox),
+        service_urls: HashMap::new(),
     }))
 }
 
@@ -1404,6 +1436,7 @@ async fn handle_stop_sandbox_inner(
     info!(sandbox_name = %req.name, "StopSandbox request completed successfully");
     Ok(Response::new(SandboxResponse {
         sandbox: Some(sandbox),
+        service_urls: HashMap::new(),
     }))
 }
 
@@ -1472,6 +1505,7 @@ async fn handle_start_sandbox_inner(
     info!(sandbox_name = %req.name, "StartSandbox request completed successfully");
     Ok(Response::new(SandboxResponse {
         sandbox: Some(sandbox),
+        service_urls: HashMap::new(),
     }))
 }
 
@@ -3220,8 +3254,8 @@ mod tests {
     };
     use crate::provider_profile_sources::ProviderProfileSources;
     use openshell_core::GatewayProviderProfileSourceConfig;
-    use openshell_core::proto::GpuResourceRequirements;
     use openshell_core::proto::datamodel::v1::ObjectMeta;
+    use openshell_core::proto::{GpuResourceRequirements, SandboxServiceExposure, ServiceEndpoint};
 
     async fn test_server_state_with_user_only_github_profile() -> Arc<ServerState> {
         let mut state = test_server_state().await;
@@ -4272,6 +4306,7 @@ mod tests {
                 workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                 await_main_process_attachment: false,
                 workload_template_name: String::new(),
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -4297,6 +4332,7 @@ mod tests {
                 workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                 await_main_process_attachment: false,
                 workload_template_name: String::new(),
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -4334,6 +4370,7 @@ mod tests {
                 workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                 await_main_process_attachment: false,
                 workload_template_name: String::new(),
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -4698,6 +4735,7 @@ mod tests {
                 workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                 await_main_process_attachment: false,
                 workload_template_name: String::new(),
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -4735,6 +4773,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_sandbox_registers_requested_service_exposures() {
+        let state = test_server_state().await;
+
+        let response = handle_create_sandbox(
+            &state,
+            authed_request(CreateSandboxRequest {
+                name: "services".to_string(),
+                spec: Some(SandboxSpec::default()),
+                workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
+                service_exposures: vec![
+                    SandboxServiceExposure {
+                        service: String::new(),
+                        target_port: 4500,
+                    },
+                    SandboxServiceExposure {
+                        service: "metrics".to_string(),
+                        target_port: 9090,
+                    },
+                ],
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect("sandbox with service exposures should be created")
+        .into_inner();
+
+        let sandbox = response.sandbox.expect("created sandbox");
+        assert_eq!(response.service_urls.len(), 2);
+        assert_eq!(
+            response.service_urls.get("").map(String::as_str),
+            Some("http://default--services.openshell.localhost:17670/")
+        );
+        assert_eq!(
+            response.service_urls.get("metrics").map(String::as_str),
+            Some("http://default--services--metrics.openshell.localhost:17670/")
+        );
+        for (service, target_port) in [("", 4500), ("metrics", 9090)] {
+            let key = crate::service_routing::endpoint_key("services", service);
+            let endpoint = state
+                .store
+                .get_message_by_name::<ServiceEndpoint>("default", &key)
+                .await
+                .expect("service endpoint lookup should succeed")
+                .expect("service endpoint should be persisted");
+            assert_eq!(endpoint.sandbox_id, sandbox.object_id());
+            assert_eq!(endpoint.sandbox_name, "services");
+            assert_eq!(endpoint.service_name, service);
+            assert_eq!(endpoint.target_port, target_port);
+            assert!(endpoint.domain);
+        }
+    }
+
+    #[tokio::test]
+    async fn create_sandbox_rejects_duplicate_service_exposures_before_persisting() {
+        let state = test_server_state().await;
+        let error = handle_create_sandbox(
+            &state,
+            authed_request(CreateSandboxRequest {
+                name: "duplicate-services".to_string(),
+                spec: Some(SandboxSpec::default()),
+                workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
+                service_exposures: vec![
+                    SandboxServiceExposure {
+                        service: "web".to_string(),
+                        target_port: 8080,
+                    },
+                    SandboxServiceExposure {
+                        service: "web".to_string(),
+                        target_port: 8081,
+                    },
+                ],
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect_err("duplicate service names should be rejected");
+
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert!(error.message().contains("duplicate service exposure name"));
+        assert!(
+            state
+                .store
+                .get_message_by_name::<Sandbox>("default", "duplicate-services")
+                .await
+                .expect("sandbox lookup should succeed")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn create_and_get_preserve_partial_process_identity() {
         let state = test_server_state_with_driver("docker").await;
         let policy = openshell_core::proto::SandboxPolicy {
@@ -4759,6 +4887,7 @@ mod tests {
                 workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                 await_main_process_attachment: false,
                 workload_template_name: String::new(),
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -4824,6 +4953,7 @@ mod tests {
                 workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                 await_main_process_attachment: false,
                 workload_template_name: String::new(),
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -4856,6 +4986,7 @@ mod tests {
                 workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                 await_main_process_attachment: false,
                 workload_template_name: String::new(),
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -4890,6 +5021,7 @@ mod tests {
                     workspace_scope: Some(openshell_core::proto::workspace_selector("default")),
                     await_main_process_attachment: false,
                     workload_template_name: String::new(),
+                    service_exposures: Vec::new(),
                 }),
             )
             .await
@@ -5392,12 +5524,12 @@ mod tests {
         let message = pool
             .get_message_by_name(message_name)
             .expect("message descriptor");
-        let classified: std::collections::HashSet<&str> = copied_from_create_request
+        let classified: HashSet<&str> = copied_from_create_request
             .iter()
             .chain(rejected_template_workload_overrides.iter())
             .copied()
             .collect();
-        let actual: std::collections::HashSet<String> = message
+        let actual: HashSet<String> = message
             .fields()
             .map(|field| field.name().to_string())
             .collect();
@@ -5470,6 +5602,7 @@ mod tests {
                 )),
                 workload_template_name: "gpu-kata".to_string(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -5556,6 +5689,7 @@ mod tests {
                 )),
                 workload_template_name: "default-image".to_string(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -5607,6 +5741,7 @@ mod tests {
                 )),
                 workload_template_name: "default-gpu".to_string(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -5646,6 +5781,7 @@ mod tests {
                 )),
                 workload_template_name: "corrupt-template".to_string(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -5685,6 +5821,7 @@ mod tests {
                 )),
                 workload_template_name: "gpu-kata".to_string(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -5710,6 +5847,7 @@ mod tests {
                 )),
                 workload_template_name: "Invalid_Template_Name".to_string(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -5738,6 +5876,7 @@ mod tests {
                 )),
                 workload_template_name: "missing-template".to_string(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await
@@ -5766,6 +5905,7 @@ mod tests {
                 )),
                 workload_template_name: String::new(),
                 await_main_process_attachment: false,
+                service_exposures: Vec::new(),
             }),
         )
         .await

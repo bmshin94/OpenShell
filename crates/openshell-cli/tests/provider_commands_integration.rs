@@ -201,6 +201,7 @@ impl OpenShell for TestOpenShell {
                 status: None,
                 ..Sandbox::default()
             }),
+            service_urls: HashMap::new(),
         }))
     }
 

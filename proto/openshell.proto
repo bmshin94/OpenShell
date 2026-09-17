@@ -1161,6 +1161,10 @@ message CreateSandboxRequest {
   string workload_template_name = 7;
   // Explicit workspace for the sandbox. The all-workspaces selection is invalid.
   openshell.datamodel.v1.WorkspaceSelector workspace_scope = 8;
+  // HTTP services to expose when the sandbox is created. Endpoints are
+  // registered after the sandbox has been persisted and route only while the
+  // sandbox is ready.
+  repeated SandboxServiceExposure service_exposures = 9;
 }
 
 message CreateSandboxTemplateRequest {
@@ -1358,6 +1362,9 @@ message StartSandboxRequest {
 // Sandbox response.
 message SandboxResponse {
   Sandbox sandbox = 1;
+  // Service URLs created by CreateSandbox, keyed by service name. The empty
+  // key identifies the unnamed service. Other sandbox RPCs return an empty map.
+  map<string, string> service_urls = 2;
 }
 
 // List sandboxes response.
@@ -3297,4 +3304,12 @@ message EndpointStatus {
   // time: still-valid evidence can be reaccepted after a reset. Identical
   // same-sequence retries do not advance it. Absent until a result is reported.
   google.protobuf.Timestamp last_reported_time = 106;
+}
+
+// Create-time request to expose one loopback HTTP service in a sandbox.
+message SandboxServiceExposure {
+  // Service name within the sandbox. Empty selects the unnamed endpoint.
+  string service = 1;
+  // Loopback TCP port inside the sandbox.
+  uint32 target_port = 2;
 }
