@@ -440,6 +440,43 @@ mod tests {
             .then_some(CdiPathKind::CharacterDevice)
     }
 
+    #[derive(serde::Serialize)]
+    struct PolicyBaseline<'a> {
+        device_node_paths: &'a [String],
+        read_only_mount_paths: &'a [String],
+        read_write_mount_paths: &'a [String],
+        additional_gids: &'a [u32],
+    }
+
+    #[test]
+    fn orin_cdi_spec_matches_generated_policy_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        write_spec(
+            dir.path(),
+            "nvidia.yaml",
+            include_str!("../testdata/orin-nvidia.yaml"),
+        );
+
+        let requirements = resolve_with_kind(
+            &context(dir.path(), &["nvidia.com/gpu=all"]),
+            &[],
+            fake_device_node,
+        )
+        .unwrap();
+        let baseline = PolicyBaseline {
+            device_node_paths: &requirements.device_node_paths,
+            read_only_mount_paths: &requirements.read_only_mount_paths,
+            read_write_mount_paths: &requirements.read_write_mount_paths,
+            additional_gids: &requirements.additional_gids,
+        };
+        let generated = serde_json::to_string_pretty(&baseline).unwrap() + "\n";
+
+        assert_eq!(
+            generated,
+            include_str!("../testdata/orin-nvidia-policy-baseline.json")
+        );
+    }
+
     #[test]
     fn resolves_native_single_device_requirements() {
         let dir = tempfile::tempdir().unwrap();
