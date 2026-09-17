@@ -450,7 +450,7 @@ mod tests {
     #[derive(serde::Serialize)]
     struct PolicyBaseline<'a> {
         device_node_paths: &'a [String],
-        read_only_mount_paths: &'a [String],
+        library_directories: &'a [String],
         read_write_mount_paths: &'a [String],
         additional_gids: &'a [u32],
     }
@@ -472,7 +472,7 @@ mod tests {
         .unwrap();
         let baseline = PolicyBaseline {
             device_node_paths: &requirements.device_node_paths,
-            read_only_mount_paths: &requirements.read_only_mount_paths,
+            library_directories: &requirements.library_directories,
             read_write_mount_paths: &requirements.read_write_mount_paths,
             additional_gids: &requirements.additional_gids,
         };
