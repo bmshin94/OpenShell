@@ -52,7 +52,7 @@ impl CdiSpecDirectory {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CdiDerivedRequirements {
     pub device_node_paths: Vec<String>,
-    pub read_only_mount_paths: Vec<String>,
+    pub library_directories: Vec<String>,
     pub read_write_mount_paths: Vec<String>,
     pub additional_gids: Vec<u32>,
 }

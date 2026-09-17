@@ -31,12 +31,13 @@ workloads write thread metadata under `/proc/<pid>/task/<tid>/comm`.
 
 GPU/CDI sandboxes can also carry a supervisor-only CDI context from the compute
 driver. The supervisor resolves selected CDI IDs from mounted CDI specs and
-adds derived device nodes, library mount destinations, and supplemental GIDs
-before agent exec. CDI host paths are ignored for policy. Derived mount
-destinations default to read-only; writable CDI single-file mounts require an
-exact `filesystem_policy.read_write` opt-in, and writable CDI directory mounts
-fail closed. CDI resolution errors are security-relevant startup failures and
-emit OCSF findings.
+adds derived device nodes, parent directories of shared-library mounts, and
+supplemental GIDs before agent exec. CDI host paths and non-library read-only
+mounts are ignored for policy. Library filenames must end in `.so` or
+`.so.<single digit>`. Writable CDI single-file mounts require an exact
+`filesystem_policy.read_write` opt-in, and writable CDI directory mounts fail
+closed. CDI resolution errors are security-relevant startup failures and emit
+OCSF findings.
 
 Landlock rules are tailored to the inode type reported by the already-opened
 path descriptor. Directories retain the requested directory and file rights;

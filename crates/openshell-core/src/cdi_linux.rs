@@ -151,21 +151,38 @@ impl RequirementAccumulator {
     }
 
     fn build(self) -> CdiDerivedRequirements {
-        let mut read_only_mount_paths = Vec::new();
+        let mut library_directories = BTreeSet::new();
         let mut read_write_mount_paths = Vec::new();
         for (path, access) in self.mount_paths {
             match access {
-                CdiAccess::ReadOnly => read_only_mount_paths.push(path),
+                CdiAccess::ReadOnly => {
+                    if let Some(parent) = shared_library_parent(&path) {
+                        library_directories.insert(parent);
+                    }
+                }
                 CdiAccess::ReadWrite => read_write_mount_paths.push(path),
             }
         }
         CdiDerivedRequirements {
             device_node_paths: self.device_node_paths.into_iter().collect(),
-            read_only_mount_paths,
+            library_directories: library_directories.into_iter().collect(),
             read_write_mount_paths,
             additional_gids: self.additional_gids.into_iter().collect(),
         }
     }
+}
+
+fn shared_library_parent(path: &str) -> Option<String> {
+    let path = Path::new(path);
+    let name = path.file_name()?.to_str()?;
+    let versioned_library = name
+        .as_bytes()
+        .split_last()
+        .is_some_and(|(last, prefix)| last.is_ascii_digit() && prefix.ends_with(b".so."));
+    if !name.ends_with(".so") && !versioned_library {
+        return None;
+    }
+    path.parent()?.to_str().map(ToOwned::to_owned)
 }
 
 pub fn resolve_cdi_context<S: BuildHasher>(
@@ -510,8 +527,8 @@ devices:
             vec!["/dev/nvidia0", "/dev/nvidiactl"]
         );
         assert_eq!(
-            requirements.read_only_mount_paths,
-            vec!["/usr/local/cuda/lib64/libcuda.so.1"]
+            requirements.library_directories,
+            vec!["/usr/local/cuda/lib64"]
         );
     }
 
@@ -575,9 +592,49 @@ devices:
         .unwrap();
 
         assert_eq!(requirements.device_node_paths, vec!["/dev/dxg"]);
+        assert_eq!(requirements.library_directories, vec!["/usr/lib/wsl/lib"]);
+    }
+
+    #[test]
+    fn resolves_only_supported_shared_library_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        write_spec(
+            dir.path(),
+            "libraries.yaml",
+            r#"
+cdiVersion: 1.1.0
+kind: nvidia.com/gpu
+devices:
+  - name: "0"
+    containerEdits:
+      mounts:
+        - hostPath: /host/lib/libcuda.so
+          containerPath: /opt/nvidia/lib/libcuda.so
+        - hostPath: /host/lib/libnvidia-ml.so.1
+          containerPath: /opt/nvidia/lib/libnvidia-ml.so.1
+        - hostPath: /host/lib/libnvidia-encode.so.9
+          containerPath: /opt/nvidia/encode/libnvidia-encode.so.9
+        - hostPath: /host/lib/libunsupported.so.12
+          containerPath: /opt/nvidia/lib/libunsupported.so.12
+        - hostPath: /host/lib/libunsupported.so.1.2
+          containerPath: /opt/nvidia/lib/libunsupported.so.1.2
+        - hostPath: /host/bin/nvidia-smi
+          containerPath: /usr/bin/nvidia-smi
+        - hostPath: /host/config/runtime.json
+          containerPath: /etc/nvidia/runtime.json
+"#,
+        );
+
+        let requirements = resolve_with_kind(
+            &context(dir.path(), &["nvidia.com/gpu=0"]),
+            &[],
+            always_missing,
+        )
+        .unwrap();
+
         assert_eq!(
-            requirements.read_only_mount_paths,
-            vec!["/usr/lib/wsl/lib/libcuda.so.1"]
+            requirements.library_directories,
+            vec!["/opt/nvidia/encode", "/opt/nvidia/lib"]
         );
     }
 

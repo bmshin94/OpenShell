@@ -128,9 +128,10 @@ read-write when GPU devices or CDI specs are present.
 Docker GPU/CDI sandboxes receive CDI-derived filesystem requirements instead
 of the hard-coded GPU device and library baseline. The supervisor resolves the
 selected CDI device specs inside the sandbox and adds CDI device nodes as
-read-write paths and CDI mount destinations as read-only paths. CDI
-`additionalGids` are applied as supplemental groups before agent processes drop
-privileges.
+read-write paths. For read-only mounts, it adds only the parent directories of
+shared libraries whose filenames end in `.so` or `.so.<single digit>`; other
+read-only CDI mounts do not alter the filesystem policy. CDI `additionalGids`
+are applied as supplemental groups before agent processes drop privileges.
 
 Writable CDI mount destinations are fail-closed. OpenShell accepts a writable
 CDI mount only when it targets a single file and that exact path is already

@@ -1950,7 +1950,7 @@ impl EnrichmentPlan {
 
     fn cdi_gpu(requirements: &openshell_core::cdi::CdiDerivedRequirements) -> Self {
         let mut plan = Self::default();
-        for path in &requirements.read_only_mount_paths {
+        for path in &requirements.library_directories {
             plan.insert_read_only_path(path, EnrichmentPathPolicy::runtime_mount());
         }
         for path in &requirements.device_node_paths {
@@ -2568,8 +2568,8 @@ fn emit_cdi_enrichment_event(requirements: &openshell_core::cdi::CdiDerivedRequi
                 serde_json::json!(requirements.device_node_paths.len())
             )
             .unmapped(
-                "cdi_read_only_mount_count",
-                serde_json::json!(requirements.read_only_mount_paths.len())
+                "cdi_library_directory_count",
+                serde_json::json!(requirements.library_directories.len())
             )
             .unmapped(
                 "cdi_read_write_mount_count",
@@ -2858,7 +2858,7 @@ mod baseline_tests {
     fn enrichment_plan_composes_proxy_baseline_and_cdi_gpu_paths() {
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: vec!["/dev/dxg".to_string()],
-            read_only_mount_paths: vec!["/usr/lib/wsl/lib/libcuda.so.1".to_string()],
+            library_directories: vec!["/usr/lib/wsl/lib".to_string()],
             read_write_mount_paths: Vec::new(),
             additional_gids: vec![44],
         };
@@ -2866,7 +2866,7 @@ mod baseline_tests {
         let (ro, rw) = plan.paths();
 
         assert!(ro.contains(&"/usr".to_string()));
-        assert!(ro.contains(&"/usr/lib/wsl/lib/libcuda.so.1".to_string()));
+        assert!(ro.contains(&"/usr/lib/wsl/lib".to_string()));
         assert!(rw.contains(&"/tmp".to_string()));
         assert!(rw.contains(&"/dev/dxg".to_string()));
         assert!(rw.contains(&GPU_PROC_READ_WRITE.to_string()));
@@ -2894,7 +2894,7 @@ mod baseline_tests {
         let mut policy = openshell_policy::restrictive_default_policy();
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: vec!["/dev/dxg".to_string()],
-            read_only_mount_paths: vec!["/usr/lib/wsl/lib/libcuda.so.1".to_string()],
+            library_directories: vec!["/usr/lib/wsl/lib".to_string()],
             read_write_mount_paths: Vec::new(),
             additional_gids: Vec::new(),
         };
@@ -2902,7 +2902,7 @@ mod baseline_tests {
         let plan = EnrichmentPlan::cdi_gpu(&requirements);
         assert!(
             plan.apply_to_proto_policy_with(&mut policy, |path| {
-                matches!(path, "/usr/lib/wsl/lib/libcuda.so.1" | "/dev/dxg" | "/proc")
+                matches!(path, "/usr/lib/wsl/lib" | "/dev/dxg" | "/proc")
             })
             .unwrap()
             .modified()
@@ -2911,7 +2911,7 @@ mod baseline_tests {
         assert!(
             filesystem
                 .read_only
-                .contains(&"/usr/lib/wsl/lib/libcuda.so.1".to_string())
+                .contains(&"/usr/lib/wsl/lib".to_string())
         );
         assert!(filesystem.read_write.contains(&"/dev/dxg".to_string()));
     }
@@ -2921,7 +2921,7 @@ mod baseline_tests {
         let mut policy = openshell_policy::restrictive_default_policy();
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: vec!["/dev/dxg".to_string()],
-            read_only_mount_paths: Vec::new(),
+            library_directories: Vec::new(),
             read_write_mount_paths: Vec::new(),
             additional_gids: Vec::new(),
         };
@@ -2946,7 +2946,7 @@ mod baseline_tests {
         });
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: vec!["/dev/nvidia0".to_string()],
-            read_only_mount_paths: Vec::new(),
+            library_directories: Vec::new(),
             read_write_mount_paths: Vec::new(),
             additional_gids: Vec::new(),
         };
@@ -2977,7 +2977,7 @@ mod baseline_tests {
         });
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: Vec::new(),
-            read_only_mount_paths: Vec::new(),
+            library_directories: Vec::new(),
             read_write_mount_paths: vec!["/opt/nvidia/cache.db".to_string()],
             additional_gids: Vec::new(),
         };
@@ -3006,7 +3006,7 @@ mod baseline_tests {
         });
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: vec!["/proc".to_string()],
-            read_only_mount_paths: Vec::new(),
+            library_directories: Vec::new(),
             read_write_mount_paths: Vec::new(),
             additional_gids: Vec::new(),
         };
@@ -3031,7 +3031,7 @@ mod baseline_tests {
         };
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: Vec::new(),
-            read_only_mount_paths: Vec::new(),
+            library_directories: Vec::new(),
             read_write_mount_paths: Vec::new(),
             additional_gids: vec![44, 107],
         };
