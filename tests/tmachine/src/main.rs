@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use config::{Config, Machine, Scenario};
+use config::{Config, Installation, Machine, Scenario};
 
 mod ansible;
 mod config;
@@ -23,9 +23,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    Setup { scenario: String },
-    Install { scenario: String },
-    Test { scenario: String, testsuite: String },
+    Setup {
+        scenario: String,
+    },
+    Install {
+        scenario: String,
+        installation: String,
+    },
+    Test {
+        scenario: String,
+        installation: String,
+        testsuite: String,
+    },
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -38,25 +47,40 @@ async fn main() -> Result<()> {
             let (machine, scenario) = find_scenario(&config, &scenario)?;
             qemu::setup(&machine, &scenario).await?;
         }
-        Command::Install { scenario } => {
+        Command::Install {
+            scenario,
+            installation,
+        } => {
             let (machine, scenario) = find_scenario(&config, &scenario)?;
-            qemu::install(&machine, &scenario).await?;
+            let installation = find_installation(&config, &installation)?;
+            qemu::install(&machine, &scenario, &installation).await?;
         }
         Command::Test {
             scenario,
+            installation,
             testsuite,
         } => {
             let (machine, scenario) = find_scenario(&config, &scenario)?;
+            let installation = find_installation(&config, &installation)?;
             let testsuite = config
                 .testsuites
                 .iter()
                 .find(|candidate| candidate.name == testsuite)
                 .with_context(|| format!("testsuite {testsuite:?} is not defined"))?;
-            qemu::test(&machine, &scenario, testsuite).await?;
+            qemu::test(&machine, &scenario, &installation, testsuite).await?;
         }
     }
 
     Ok(())
+}
+
+fn find_installation(config: &Config, name: &str) -> Result<Installation> {
+    config
+        .installations
+        .iter()
+        .find(|installation| installation.name == name)
+        .with_context(|| format!("installation {name:?} is not defined"))
+        .cloned()
 }
 
 fn find_scenario(config: &Config, name: &str) -> Result<(Machine, Scenario)> {

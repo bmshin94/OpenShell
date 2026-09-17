@@ -42,19 +42,6 @@ let
             "ansible/playbooks/docker.yaml"
           ];
         };
-        install = {
-          use_galaxy = false;
-          playbooks = [
-            "ansible/playbooks/openshell.yaml"
-            "ansible/playbooks/gateway.yaml"
-          ];
-          inputs = {
-            openshell_cli_binary = "../artifacts/binaries/${muslTarget}/openshell";
-            openshell_gateway_binary = "../artifacts/binaries/${gnuTarget}/openshell-gateway";
-            openshell_supervisor_image = "../artifacts/images/openshell-supervisor-tmachine.tar";
-            openshell_sandbox_image = "../artifacts/images/openshell-sandbox-tmachine.tar";
-          };
-        };
       }
       {
         name = "fedora-podman-rootful";
@@ -65,19 +52,6 @@ let
             "ansible/playbooks/nextest.yaml"
             "ansible/playbooks/podman-rootful.yaml"
           ];
-        };
-        install = {
-          use_galaxy = false;
-          playbooks = [
-            "ansible/playbooks/openshell.yaml"
-            "ansible/playbooks/gateway.yaml"
-          ];
-          inputs = {
-            openshell_cli_binary = "../artifacts/binaries/${muslTarget}/openshell";
-            openshell_gateway_binary = "../artifacts/binaries/${gnuTarget}/openshell-gateway";
-            openshell_supervisor_image = "../artifacts/images/openshell-supervisor-tmachine.tar";
-            openshell_sandbox_image = "../artifacts/images/openshell-sandbox-tmachine.tar";
-          };
         };
       }
       {
@@ -90,18 +64,22 @@ let
             "ansible/playbooks/podman-rootless.yaml"
           ];
         };
-        install = {
-          use_galaxy = false;
-          playbooks = [
-            "ansible/playbooks/openshell.yaml"
-            "ansible/playbooks/gateway.yaml"
-          ];
-          inputs = {
-            openshell_cli_binary = "../artifacts/binaries/${muslTarget}/openshell";
-            openshell_gateway_binary = "../artifacts/binaries/${gnuTarget}/openshell-gateway";
-            openshell_supervisor_image = "../artifacts/images/openshell-supervisor-tmachine.tar";
-            openshell_sandbox_image = "../artifacts/images/openshell-sandbox-tmachine.tar";
-          };
+      }
+    ];
+
+    installations = [
+      {
+        name = "native";
+        use_galaxy = false;
+        playbooks = [
+          "ansible/playbooks/openshell.yaml"
+          "ansible/playbooks/gateway.yaml"
+        ];
+        inputs = {
+          openshell_cli_binary = "../artifacts/binaries/${muslTarget}/openshell";
+          openshell_gateway_binary = "../artifacts/binaries/${gnuTarget}/openshell-gateway";
+          openshell_supervisor_image = "../artifacts/images/openshell-supervisor-tmachine.tar";
+          openshell_sandbox_image = "../artifacts/images/openshell-sandbox-tmachine.tar";
         };
       }
     ];

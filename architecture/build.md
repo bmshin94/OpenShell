@@ -247,6 +247,12 @@ CLI conformance runs after target provisioning and operates only through the
 configured OpenShell CLI. The smoke scenario verifies the black-box sandbox
 lifecycle by creating, inspecting, executing in, and deleting a sandbox.
 
+Tmachine runtime scenarios define the guest machine and runtime setup, while
+named installation profiles define how OpenShell is installed. This keeps the
+runtime mode independent from native or package installation and lets multiple
+installation profiles reuse the same prepared setup disk. The test command is
+`tmachine test <scenario> <installation> <testsuite>`.
+
 The `tests/tmachine` setup and installation caches include a digest of the
 entire directory containing `ANSIBLE_CONFIG`, including local roles, task
 includes, templates, inventory, and requirements. The digest uses sorted

@@ -134,4 +134,4 @@ jobs:
         env:
           SCENARIO: ${{ matrix.scenario }}
           TESTSUITE: ${{ matrix.testsuite }}
-        run: nix run .#tmachine -- test "${SCENARIO}" "${TESTSUITE}"
+        run: nix run .#tmachine -- test "${SCENARIO}" native "${TESTSUITE}"
