@@ -3,7 +3,10 @@
 
 //! Linux implementation of CDI policy resolution.
 
-use super::{CDI_CONTEXT_VERSION, CdiContext, CdiDerivedRequirements, CdiError, CdiSpecDirectory};
+use super::{
+    CDI_CONTEXT_VERSION, CdiContext, CdiDerivedRequirements, CdiError, CdiSpecDirectory,
+    shared_library_parent,
+};
 use crate::paths::normalize_path;
 use container_device_interface::{
     cache::{Cache, with_auto_refresh},
@@ -170,19 +173,6 @@ impl RequirementAccumulator {
             additional_gids: self.additional_gids.into_iter().collect(),
         }
     }
-}
-
-fn shared_library_parent(path: &str) -> Option<String> {
-    let path = Path::new(path);
-    let name = path.file_name()?.to_str()?;
-    let versioned_library = name
-        .as_bytes()
-        .split_last()
-        .is_some_and(|(last, prefix)| last.is_ascii_digit() && prefix.ends_with(b".so."));
-    if !name.ends_with(".so") && !versioned_library {
-        return None;
-    }
-    path.parent()?.to_str().map(ToOwned::to_owned)
 }
 
 pub fn resolve_cdi_context<S: BuildHasher>(
@@ -596,7 +586,7 @@ devices:
     }
 
     #[test]
-    fn resolves_only_supported_shared_library_parent_directories() {
+    fn resolves_supported_shared_library_parent_directories() {
         let dir = tempfile::tempdir().unwrap();
         write_spec(
             dir.path(),
@@ -614,10 +604,14 @@ devices:
           containerPath: /opt/nvidia/lib/libnvidia-ml.so.1
         - hostPath: /host/lib/libnvidia-encode.so.9
           containerPath: /opt/nvidia/encode/libnvidia-encode.so.9
-        - hostPath: /host/lib/libunsupported.so.12
-          containerPath: /opt/nvidia/lib/libunsupported.so.12
-        - hostPath: /host/lib/libunsupported.so.1.2
-          containerPath: /opt/nvidia/lib/libunsupported.so.1.2
+        - hostPath: /host/lib/libnvidia-eglcore.so.540.5.0
+          containerPath: /opt/nvidia/versioned/libnvidia-eglcore.so.540.5.0
+        - hostPath: /host/lib/libunsupported.so.debug
+          containerPath: /opt/nvidia/debug/libunsupported.so.debug
+        - hostPath: /host/lib/libunsupported.so.1beta
+          containerPath: /opt/nvidia/debug/libunsupported.so.1beta
+        - hostPath: /host/config/ld.so.conf
+          containerPath: /etc/nvidia/ld.so.conf
         - hostPath: /host/bin/nvidia-smi
           containerPath: /usr/bin/nvidia-smi
         - hostPath: /host/config/runtime.json
@@ -634,7 +628,11 @@ devices:
 
         assert_eq!(
             requirements.library_directories,
-            vec!["/opt/nvidia/encode", "/opt/nvidia/lib"]
+            vec![
+                "/opt/nvidia/encode",
+                "/opt/nvidia/lib",
+                "/opt/nvidia/versioned"
+            ]
         );
     }
 

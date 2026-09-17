@@ -2023,10 +2023,12 @@ impl EnrichmentPlan {
             }
         }
 
-        let read_write = read_write
+        let mut read_write = read_write
             .into_iter()
             .map(|(path, policy)| EnrichmentPath { path, policy })
-            .collect();
+            .collect::<Vec<_>>();
+        read_only.sort_by(enrichment_path_order);
+        read_write.sort_by(enrichment_path_order);
         (read_only, read_write)
     }
 
@@ -2075,12 +2077,18 @@ impl EnrichmentPlan {
             if !addition.should_apply("read_only", &path_exists)? {
                 continue;
             }
-            if !fs.read_only.iter().any(|p| p == &addition.path)
-                && !fs.read_write.iter().any(|p| p == &addition.path)
-            {
-                fs.read_only.push(addition.path);
-                application.record(addition.policy.sources);
+            let addition_path = std::path::Path::new(&addition.path);
+            if path_is_covered_by(
+                addition_path,
+                fs.read_only
+                    .iter()
+                    .chain(&fs.read_write)
+                    .map(std::path::Path::new),
+            ) {
+                continue;
             }
+            fs.read_only.push(addition.path);
+            application.record(addition.policy.sources);
         }
         for addition in read_write {
             if !addition.should_apply("read_write", &path_exists)? {
@@ -2126,12 +2134,19 @@ impl EnrichmentPlan {
                 continue;
             }
             let p = PathBuf::from(&addition.path);
-            if !policy.filesystem.read_only.contains(&p)
-                && !policy.filesystem.read_write.contains(&p)
-            {
-                policy.filesystem.read_only.push(p);
-                application.record(addition.policy.sources);
+            if path_is_covered_by(
+                &p,
+                policy
+                    .filesystem
+                    .read_only
+                    .iter()
+                    .chain(&policy.filesystem.read_write)
+                    .map(PathBuf::as_path),
+            ) {
+                continue;
             }
+            policy.filesystem.read_only.push(p);
+            application.record(addition.policy.sources);
         }
         for addition in read_write {
             if !addition.should_apply("read_write", &|path| std::path::Path::new(path).exists())? {
@@ -2190,6 +2205,23 @@ impl EnrichmentPlan {
             read_write.into_iter().map(|path| path.path).collect(),
         )
     }
+}
+
+fn enrichment_path_order(left: &EnrichmentPath, right: &EnrichmentPath) -> std::cmp::Ordering {
+    std::path::Path::new(&left.path)
+        .components()
+        .count()
+        .cmp(&std::path::Path::new(&right.path).components().count())
+        .then_with(|| left.path.cmp(&right.path))
+}
+
+fn path_is_covered_by<'a>(
+    candidate: &std::path::Path,
+    existing: impl IntoIterator<Item = &'a std::path::Path>,
+) -> bool {
+    existing
+        .into_iter()
+        .any(|allowed| candidate.starts_with(allowed))
 }
 
 /// Returns true if GPU devices are present in the container.
@@ -2878,6 +2910,20 @@ mod baseline_tests {
     }
 
     #[test]
+    fn enrichment_plan_orders_paths_by_depth_then_lexically() {
+        let mut plan = EnrichmentPlan::default();
+        for path in ["/usr/lib/wsl/lib", "/opt/nvidia", "/usr", "/opt"] {
+            plan.insert_read_only_path(path, EnrichmentPathPolicy::baseline());
+        }
+
+        let (read_only, _) = plan.paths();
+        assert_eq!(
+            read_only,
+            ["/opt", "/usr", "/opt/nvidia", "/usr/lib/wsl/lib"]
+        );
+    }
+
+    #[test]
     fn enrichment_plan_merges_baseline_and_runtime_path_sources() {
         let mut plan = EnrichmentPlan::default();
         plan.insert_read_write_path("/shared", EnrichmentPathPolicy::baseline());
@@ -2890,7 +2936,7 @@ mod baseline_tests {
     }
 
     #[test]
-    fn proto_cdi_enrichment_adds_derived_paths() {
+    fn proto_cdi_enrichment_omits_library_directory_covered_by_policy_parent() {
         let mut policy = openshell_policy::restrictive_default_policy();
         let requirements = openshell_core::cdi::CdiDerivedRequirements {
             device_node_paths: vec!["/dev/dxg".to_string()],
@@ -2909,11 +2955,32 @@ mod baseline_tests {
         );
         let filesystem = policy.filesystem.expect("filesystem policy");
         assert!(
-            filesystem
+            !filesystem
                 .read_only
-                .contains(&"/usr/lib/wsl/lib".to_string())
+                .contains(&"/usr/lib/wsl/lib".to_string()),
+            "the existing /usr rule should cover the derived library directory"
         );
         assert!(filesystem.read_write.contains(&"/dev/dxg".to_string()));
+    }
+
+    #[test]
+    fn proto_cdi_enrichment_validates_covered_runtime_path_before_omitting_it() {
+        let mut policy = openshell_policy::restrictive_default_policy();
+        let requirements = openshell_core::cdi::CdiDerivedRequirements {
+            device_node_paths: Vec::new(),
+            library_directories: vec!["/usr/lib/wsl/lib".to_string()],
+            read_write_mount_paths: Vec::new(),
+            additional_gids: Vec::new(),
+        };
+
+        let plan = EnrichmentPlan::cdi_gpu(&requirements);
+        let err = plan
+            .apply_to_proto_policy_with(&mut policy, |path| path == "/proc")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("/usr/lib/wsl/lib"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

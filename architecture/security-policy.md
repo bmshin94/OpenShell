@@ -33,8 +33,10 @@ GPU/CDI sandboxes can also carry a supervisor-only CDI context from the compute
 driver. The supervisor resolves selected CDI IDs from mounted CDI specs and
 adds derived device nodes, parent directories of shared-library mounts, and
 supplemental GIDs before agent exec. CDI host paths and non-library read-only
-mounts are ignored for policy. Library filenames must end in `.so` or
-`.so.<single digit>`. Writable CDI single-file mounts require an exact
+mounts are ignored for policy. Library filenames must end in `.so` or a
+numeric SONAME suffix such as `.so.1` or `.so.1.2`. A derived library directory
+is omitted when an existing read-only or read-write ancestor already covers
+it. Writable CDI single-file mounts require an exact
 `filesystem_policy.read_write` opt-in, and writable CDI directory mounts fail
 closed. CDI resolution errors are security-relevant startup failures and emit
 OCSF findings.

@@ -124,6 +124,51 @@ pub fn read_context(path: impl AsRef<Path>) -> Result<CdiContext, CdiError> {
     })
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn shared_library_parent(path: &str) -> Option<String> {
+    let path = Path::new(path);
+    let name = path.file_name()?.to_str()?;
+    let versioned_library = name.rsplit_once(".so.").is_some_and(|(_, version)| {
+        version.split('.').all(|component| {
+            !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+        })
+    });
+    let unversioned_library = name
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension == "so");
+    if !unversioned_library && !versioned_library {
+        return None;
+    }
+    path.parent()?.to_str().map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shared_library_parent;
+
+    #[test]
+    fn identifies_shared_library_parent_directories() {
+        for path in [
+            "/opt/nvidia/lib/libcuda.so",
+            "/opt/nvidia/lib/libnvidia-ml.so.1",
+            "/opt/nvidia/lib/libnvidia-eglcore.so.540.5.0",
+        ] {
+            assert_eq!(
+                shared_library_parent(path).as_deref(),
+                Some("/opt/nvidia/lib")
+            );
+        }
+        for path in [
+            "/etc/ld.so.conf",
+            "/opt/nvidia/lib/libcuda.so.debug",
+            "/opt/nvidia/lib/libcuda.so.1beta",
+            "/usr/bin/nvidia-smi",
+        ] {
+            assert_eq!(shared_library_parent(path), None);
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[path = "cdi_linux.rs"]
 mod cdi_linux;
