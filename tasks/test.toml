@@ -149,7 +149,7 @@ run = [
 ["e2e:provider-refresh-keycloak"]
 description = "Run provider refresh recovery e2e against Keycloak and a Podman gateway"
 run = [
-  "CONTAINER_RUNTIME=podman e2e/with-keycloak.sh e2e/with-podman-gateway.sh cargo test --manifest-path e2e/rust/Cargo.toml --features e2e-provider-refresh-keycloak --test provider_refresh_keycloak -- --nocapture",
+  "CONTAINER_RUNTIME=podman e2e/with-keycloak.sh e2e/with-podman-gateway.sh cargo test --manifest-path tests/suites/features/Cargo.toml -p openshell-test-feature-provider-refresh-keycloak -- --nocapture",
 ]
 
 ["e2e:oidc-pkce:docker"]
