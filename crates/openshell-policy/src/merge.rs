@@ -152,7 +152,7 @@ pub enum L7BinaryScope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct L7RuleTarget {
     /// Exact key of the sandbox-owned network policy rule.
-    pub rule_name: String,
+    pub rule: String,
     /// Endpoint host selector, compared literally without ASCII case sensitivity.
     pub host: String,
     /// Complete endpoint port set; duplicates and ordering do not change scope.
@@ -175,15 +175,15 @@ impl L7RuleTarget {
             operation_index,
             reason: reason.to_string(),
         };
-        if self.rule_name.trim().is_empty()
-            || self.rule_name.trim() != self.rule_name
-            || self.rule_name.chars().any(char::is_control)
+        if self.rule.trim().is_empty()
+            || self.rule.trim() != self.rule
+            || self.rule.chars().any(char::is_control)
         {
             return Err(invalid("rule_name must name a sandbox-owned rule"));
         }
         // Provider rules are composed by the gateway and cannot be edited by
         // sandbox policy operations, even if a composed policy reaches this API.
-        if is_provider_rule_name(&self.rule_name) {
+        if is_provider_rule_name(&self.rule) {
             return Err(invalid("provider-owned rules cannot receive L7 appends"));
         }
         if self.host.is_empty()
@@ -2063,14 +2063,14 @@ fn resolve_l7_target_mut<'a>(
     target: &L7RuleTarget,
 ) -> Result<&'a mut NetworkEndpoint, PolicyMergeError> {
     let not_found = || PolicyMergeError::L7TargetNotFound {
-        rule_name: target.rule_name.clone(),
+        rule_name: target.rule.clone(),
         host: target.host.clone(),
         ports: target.ports.clone(),
         path: target.path.clone(),
     };
     let rule = policy
         .network_policies
-        .get_mut(&target.rule_name)
+        .get_mut(&target.rule)
         .ok_or_else(not_found)?;
 
     // Port overlap selects candidates so an incomplete declaration reports the
@@ -2103,7 +2103,7 @@ fn resolve_l7_target_mut<'a>(
             .collect::<Vec<_>>();
         paths.sort();
         return Err(PolicyMergeError::AmbiguousL7Target {
-            rule_name: target.rule_name.clone(),
+            rule_name: target.rule.clone(),
             host: target.host.clone(),
             ports: target.ports.clone(),
             paths,
@@ -2128,7 +2128,7 @@ fn resolve_l7_target_mut<'a>(
             declared_binaries.push(ANY_BINARY_SCOPE.to_string());
         }
         return Err(PolicyMergeError::L7BinaryScopeMismatch {
-            rule_name: target.rule_name.clone(),
+            rule_name: target.rule.clone(),
             expected: expected_binaries,
             declared: declared_binaries,
         });
@@ -2143,7 +2143,7 @@ fn resolve_l7_target_mut<'a>(
     declared_ports.dedup();
     if expected_ports != declared_ports {
         return Err(PolicyMergeError::L7PortScopeMismatch {
-            rule_name: target.rule_name.clone(),
+            rule_name: target.rule.clone(),
             host: target.host.clone(),
             expected: expected_ports,
             declared: declared_ports,
@@ -2423,7 +2423,7 @@ mod tests {
 
     fn l7_target(rule_name: &str, host: &str, ports: &[u32], binaries: &[&str]) -> L7RuleTarget {
         L7RuleTarget {
-            rule_name: rule_name.to_string(),
+            rule: rule_name.to_string(),
             host: host.to_string(),
             ports: ports.to_vec(),
             path: None,
@@ -5916,11 +5916,11 @@ mod tests {
         let valid = l7_target("scoped", "api.example.com", &[443], &["/usr/bin/trusted"]);
         let invalid = [
             L7RuleTarget {
-                rule_name: String::new(),
+                rule: String::new(),
                 ..valid.clone()
             },
             L7RuleTarget {
-                rule_name: " scoped ".to_string(),
+                rule: " scoped ".to_string(),
                 ..valid.clone()
             },
             L7RuleTarget {
@@ -5984,7 +5984,7 @@ mod tests {
         let valid = l7_target("scoped", "api.example.com", &[443], &["/usr/bin/trusted"]);
         let missing = [
             L7RuleTarget {
-                rule_name: "display-name-is-not-the-rule-key".to_string(),
+                rule: "display-name-is-not-the-rule-key".to_string(),
                 ..valid.clone()
             },
             L7RuleTarget {
@@ -6006,7 +6006,7 @@ mod tests {
                 assert_eq!(
                     merge_policy(policy.clone(), &[operation]),
                     Err(PolicyMergeError::L7TargetNotFound {
-                        rule_name: target.rule_name.clone(),
+                        rule_name: target.rule.clone(),
                         host: target.host.clone(),
                         ports: target.ports.clone(),
                         path: target.path.clone(),
